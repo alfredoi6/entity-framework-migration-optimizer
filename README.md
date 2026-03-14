@@ -231,148 +231,15 @@ It extracts the model body from the specified migration's Designer.cs (using the
 
 For teams that want deeper integration, you can extend EF Core's code generator to automatically track migration lineage. This makes branch merges safer by recording which migration preceded each new one and which migration the snapshot was generated for.
 
-### PreceedingMigrationAttribute
+The `src/` directory contains three drop-in C# classes:
 
-```csharp
-namespace YourApp.Data.DesignTime;
+| File | Purpose |
+|---|---|
+| [`PreceedingMigrationAttribute.cs`](src/PreceedingMigrationAttribute.cs) | Attribute that records which migration preceded the current one |
+| [`SnapshotGeneratedFromMigrationAttribute.cs`](src/SnapshotGeneratedFromMigrationAttribute.cs) | Attribute that records which migration the snapshot was generated from |
+| [`CustomCSharpMigrationsGenerator.cs`](src/CustomCSharpMigrationsGenerator.cs) | Overrides EF Core's code generator to add both attributes automatically |
 
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public sealed class PreceedingMigrationAttribute : Attribute
-{
-    public string MigrationId { get; }
-
-    public PreceedingMigrationAttribute(string migrationId)
-    {
-        MigrationId = migrationId ?? throw new ArgumentNullException(nameof(migrationId));
-    }
-}
-```
-
-### SnapshotForMigrationAttribute
-
-```csharp
-namespace YourApp.Data.DesignTime;
-
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public sealed class SnapshotForMigrationAttribute : Attribute
-{
-    public string MigrationId { get; }
-
-    public SnapshotForMigrationAttribute(string migrationId)
-    {
-        MigrationId = migrationId ?? throw new ArgumentNullException(nameof(migrationId));
-    }
-}
-```
-
-### CustomCSharpMigrationsGenerator
-
-```csharp
-using System.Text.RegularExpressions;
-using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Migrations;
-using Microsoft.EntityFrameworkCore.Migrations.Design;
-
-namespace YourApp.Data.DesignTime;
-
-public class CustomCSharpMigrationsGenerator : CSharpMigrationsGenerator
-{
-    private readonly IMigrationsAssembly _migrationsAssembly;
-    private string? _currentMigrationId;
-
-    public CustomCSharpMigrationsGenerator(
-        MigrationsCodeGeneratorDependencies dependencies,
-        CSharpMigrationsGeneratorDependencies csharpDependencies,
-        IMigrationsAssembly migrationsAssembly)
-        : base(dependencies, csharpDependencies)
-    {
-        _migrationsAssembly = migrationsAssembly;
-    }
-
-    public override string GenerateMetadata(
-        string migrationNamespace,
-        Type contextType,
-        string migrationName,
-        string migrationId,
-        IModel targetModel)
-    {
-        _currentMigrationId = migrationId;
-        var code = base.GenerateMetadata(
-            migrationNamespace, contextType, migrationName, migrationId, targetModel);
-
-        var precedingMigrationId = _migrationsAssembly.Migrations
-            .Select(m => m.Key)
-            .OrderBy(id => id)
-            .LastOrDefault();
-
-        if (precedingMigrationId != null)
-        {
-            var pattern = new Regex(@"(\[Migration\(""[^""]+"")\)\]");
-            var replacement = $"$1)]\r\n    [PreceedingMigration(\"{precedingMigrationId}\")]";
-            code = pattern.Replace(code, replacement, 1);
-            code = EnsureDesignTimeUsing(code);
-        }
-
-        return code;
-    }
-
-    public override string GenerateSnapshot(
-        string modelSnapshotNamespace,
-        Type contextType,
-        string modelSnapshotName,
-        IModel model)
-    {
-        var code = base.GenerateSnapshot(
-            modelSnapshotNamespace, contextType, modelSnapshotName, model);
-
-        var migrationId = _currentMigrationId ?? GetMigrationIdAfterRemovingLatest();
-
-        if (migrationId != null)
-        {
-            var pattern = new Regex(@"(\[DbContext\(typeof\([^)]+\)\)\])");
-            var replacement = $"$1\r\n    [SnapshotForMigration(\"{migrationId}\")]";
-            code = pattern.Replace(code, replacement, 1);
-            code = EnsureDesignTimeUsing(code);
-        }
-
-        return code;
-    }
-
-    private static string EnsureDesignTimeUsing(string code)
-    {
-        const string usingLine = "using YourApp.Data.DesignTime;";
-        if (code.Contains(usingLine))
-            return code;
-
-        var namespaceIndex = code.IndexOf("namespace ");
-        var searchArea = namespaceIndex > 0 ? code[..namespaceIndex] : code;
-        var lastUsingIndex = searchArea.LastIndexOf("using ");
-        if (lastUsingIndex < 0)
-            return code;
-
-        var endOfLine = code.IndexOf('\n', lastUsingIndex);
-        if (endOfLine < 0)
-            return code;
-
-        var lineEnding = endOfLine > 0 && code[endOfLine - 1] == '\r' ? "\r\n" : "\n";
-        return code.Insert(endOfLine + 1, usingLine + lineEnding);
-    }
-
-    private string? GetMigrationIdAfterRemovingLatest()
-    {
-        var sorted = _migrationsAssembly.Migrations
-            .Select(m => m.Key)
-            .OrderBy(id => id)
-            .ToList();
-
-        return sorted.Count >= 2 ? sorted[sorted.Count - 2] : null;
-    }
-}
-```
-
-### Register the Generator
-
-In your `DbContext` configuration or design-time factory:
+Copy these into your project (updating the namespace from `YourApp.Data.DesignTime` to match yours), then register the generator:
 
 ```csharp
 services.AddDbContext<AppDbContext>(options =>
@@ -383,8 +250,8 @@ services.AddDbContext<AppDbContext>(options =>
 ```
 
 This gives you two things:
-1. **`[PreceedingMigration]`** on every migration — instantly detect when two branches created migrations from the same parent (merge conflict)
-2. **`[SnapshotForMigration]`** on the snapshot — know exactly which migration the snapshot corresponds to
+1. **`[PreceedingMigration]`** on every migration -- instantly detect when two branches created migrations from the same parent (merge conflict)
+2. **`[SnapshotGeneratedFromMigration]`** on the snapshot -- know exactly which migration the snapshot corresponds to
 
 ---
 

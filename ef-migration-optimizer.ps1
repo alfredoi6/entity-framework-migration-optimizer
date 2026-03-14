@@ -258,9 +258,9 @@ function Update-SnapshotFromDesignerBody {
     $result += $NewBody
     $result += $after
 
-    # Add or update [SnapshotForMigration("MigrationId")] if the attribute type is present in the project
-    $snapshotAttrPattern = '\[SnapshotForMigration\("[^"]*"\)\]'
-    $newAttr = "[SnapshotForMigration(`"$MigrationId`")]"
+    # Add or update [SnapshotGeneratedFromMigration("MigrationId")] if the attribute type is present in the project
+    $snapshotAttrPattern = '\[SnapshotGeneratedFromMigration\("[^"]*"\)\]'
+    $newAttr = "[SnapshotGeneratedFromMigration(`"$MigrationId`")]"
     $dbContextLineIdx = -1
     $hasSnapshotAttr = $false
     $snapshotAttrIdx = -1
